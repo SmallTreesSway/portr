@@ -33,20 +33,17 @@ type AudioState struct {
 	Queue     *SongQueue
 	SourceDir string
 	events    chan audioEvent
-	playback   *playback
+	playback  *playback
 }
 
 type SongQueue struct {
-	First      *SongNode
-	Last       *SongNode
-	Current    *SongNode
+	Songs      []*Song
+	Current    int
 	RepeatMode repeatOption
 }
 
-type SongNode struct {
+type Song struct {
 	SourceFile string
-	Next       *SongNode
-	Prev       *SongNode
 	Metadata   *Metadata
 }
 
@@ -78,7 +75,7 @@ func InitAudioState(dirPath string) (*AudioState, error) {
 		return nil, err
 	}
 
-	a.startPlayback(norepeat, a.events )
+	a.startPlayback(norepeat, a.events) //temporary for testing
 	return a, nil
 }
 
@@ -89,29 +86,26 @@ func InitSongQueue(dirPath string) (*SongQueue, error) {
 	}
 	q := &SongQueue{
 		RepeatMode: 0,
+		Current:    0,
+		Songs:      make([]*Song, 0, len(entries)),
 	}
 	for _, e := range entries {
 		if e.Type().IsRegular() {
-			s, err := InitSongNode(filepath.Join(dirPath, e.Name()))
+			s, err := InitSong(filepath.Join(dirPath, e.Name()))
 			if err != nil {
 				continue
 			}
-			if q.First == nil {
-				q.First = s
-				q.Current = s
-			} else {
-				q.Current.Next = s
-				s.Prev = q.Current
-				q.Current = q.Current.Next
-			}
+			q.Songs = append(q.Songs, s)
 		}
 	}
-	q.Last = q.Current
-	q.Current = q.First
+
+	if len(entries) == 0{ //temporary to prevent seg fault
+		return nil, errors.New("no valid songs")
+	}
 	return q, nil
 }
 
-func InitSongNode(filePath string) (*SongNode, error) {
+func InitSong(filePath string) (*Song, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -122,7 +116,7 @@ func InitSongNode(filePath string) (*SongNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &SongNode{
+	s := &Song{
 		SourceFile: filePath,
 		Metadata:   m,
 	}
@@ -161,25 +155,43 @@ func buildMetadata(f *os.File) (*Metadata, error) {
 	DSF             FileType = "DSF"  // DSF file DSD Sony format see https://dsd-guide.com/sites/default/files/white-papers/DSFFileFormatSpec_E.pdf
 */
 
-func (a *AudioState) Next() {
-	if a.Queue.Current.Next != nil {
-		a.Queue.Current = a.Queue.Current.Next
-		a.startPlayback(a.Queue.RepeatMode, a.events)
-	} else if a.Queue.RepeatMode == repeatQueue {
-		a.Queue.Current = a.Queue.First
-		a.startPlayback(a.Queue.RepeatMode, a.events)
+func (a *AudioState) Next() error {
+	var err error
+	if a.playback != nil {
+		err = a.Close()
+		if err != nil {
+			return err
+		}
 	}
+	if a.Queue.Current < len(a.Queue.Songs)-1 {
+		a.Queue.Current++
+		err = a.startPlayback(a.Queue.RepeatMode, a.events)
+	} else if a.Queue.Current == len(a.Queue.Songs)-1 && a.Queue.RepeatMode == repeatQueue {
+		a.Queue.Current = 0
+		err = a.startPlayback(a.Queue.RepeatMode, a.events)
+	}
+
+	return err
 }
 
-func (a *AudioState) Prev() {
-	if a.Queue.Current.Prev != nil {
-		a.Queue.Current = a.Queue.Current.Prev
-		a.startPlayback(a.Queue.RepeatMode, a.events)
+func (a *AudioState) Prev() error {
+	var err error
+	if a.playback != nil {
+		err = a.Close()
+		if err != nil {
+			return err
+		}
 	}
+	if a.Queue.Current > 0 {
+		a.Queue.Current--
+		err = a.startPlayback(a.Queue.RepeatMode, a.events)
+	}
+
+	return err
 }
 
 func (a *AudioState) startPlayback(o repeatOption, c chan<- audioEvent) error {
-	s := a.Queue.Current
+	s := a.Queue.Songs[a.Queue.Current]
 	f, err := os.Open(s.SourceFile)
 	if err != nil {
 		return err
@@ -242,44 +254,27 @@ func (a *AudioState) TogglePause() bool {
 }
 
 func (a *AudioState) SeekTimeMilliseconds(milliseconds int64) error {
-	currentSong := a.Queue.Current
-	return currentSong.SeekTimeMilliseconds(milliseconds)
+	position := time.Duration(milliseconds) * time.Millisecond
+	sample := a.playback.format.SampleRate.N(position)
+
+	speaker.Lock()
+	defer speaker.Unlock()
+
+	return a.playback.streamer.Seek(sample)
 }
 
 func (a *AudioState) Poll() int64 {
-	currentSong := a.Queue.Current
-	return currentSong.Poll()
-}
-
-
-func (s *SongNode) SeekTimeMilliseconds(milliseconds int64) error {
-	position := time.Duration(milliseconds) * time.Millisecond
-	sample := s.playback.format.SampleRate.N(position)
-
 	speaker.Lock()
 	defer speaker.Unlock()
 
-	return s.playback.streamer.Seek(sample)
-}
-
-func (s *SongNode) Poll() int64 {
-	speaker.Lock()
-	defer speaker.Unlock()
-
-	position := s.playback.format.SampleRate.D(
-		s.playback.streamer.Position())
+	position := a.playback.format.SampleRate.D(
+		a.playback.streamer.Position())
 	return position.Milliseconds()
 }
 
-func (s *SongNode) Close() error{
-	err := s.playback.Close()
-	s.playback = nil
-	return err
-}
-
-func (p *playback) Close() error {
+func (a *AudioState) Close() error {
 	speaker.Clear()
-	return p.streamer.Close()
+	return a.playback.streamer.Close()
 }
 
 type playback struct {
