@@ -2,6 +2,7 @@ package audio
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -346,8 +347,6 @@ func (a *AudioState) Poll() int64 {
 }
 
 func (a *AudioState) Close() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	if a.Playback == nil {
 		return nil
 	}

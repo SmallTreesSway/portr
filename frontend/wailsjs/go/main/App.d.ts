@@ -4,6 +4,18 @@ import {audio} from '../models';
 
 export function ChangeDir(arg1:string):Promise<void>;
 
+export function ChangeSong(arg1:number):Promise<void>;
+
+export function GetCurrentSongData():Promise<audio.Metadata>;
+
 export function Greet(arg1:string):Promise<string>;
 
-export function NotifyEvent(arg1:audio.AudioEvent):Promise<void>;
+export function Next():Promise<void>;
+
+export function PollTimeMilliSeconds():Promise<number>;
+
+export function Prev():Promise<void>;
+
+export function SeekTimeMilliseconds(arg1:number):Promise<void>;
+
+export function TogglePause():Promise<boolean>;

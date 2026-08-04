@@ -6,10 +6,34 @@ export function ChangeDir(arg1) {
   return window['go']['main']['App']['ChangeDir'](arg1);
 }
 
+export function ChangeSong(arg1) {
+  return window['go']['main']['App']['ChangeSong'](arg1);
+}
+
+export function GetCurrentSongData() {
+  return window['go']['main']['App']['GetCurrentSongData']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
-export function NotifyEvent(arg1) {
-  return window['go']['main']['App']['NotifyEvent'](arg1);
+export function Next() {
+  return window['go']['main']['App']['Next']();
+}
+
+export function PollTimeMilliSeconds() {
+  return window['go']['main']['App']['PollTimeMilliSeconds']();
+}
+
+export function Prev() {
+  return window['go']['main']['App']['Prev']();
+}
+
+export function SeekTimeMilliseconds(arg1) {
+  return window['go']['main']['App']['SeekTimeMilliseconds'](arg1);
+}
+
+export function TogglePause() {
+  return window['go']['main']['App']['TogglePause']();
 }

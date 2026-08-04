@@ -1,5 +1,5 @@
 <script lang="ts">
-    import {ChangeDir, Greet } from "../wailsjs/go/main/App.js";
+    import {ChangeDir, Greet, Next, Prev, TogglePause } from "../wailsjs/go/main/App.js";
 
     let resultText: string = "ChangeDir";
 
@@ -24,6 +24,37 @@
          resultText = String(e)
      }
  }
+
+ async function NextSong(): Promise<void>{
+     resultText ="pressed"
+     try{
+         await Next()
+         resultText = "Song Skipped"
+     }catch(e){
+         resultText = String(e)
+     }
+ }
+
+ async function PrevSong(): Promise<void>{
+     resultText ="pressed"
+     try{
+         await Prev()
+         resultText = "Previous song playing"
+     }catch(e){
+         resultText = String(e)
+     }
+ }
+
+
+ async function TogglePlayback(): Promise<void>{
+     resultText = "pressed"
+     try{
+         let paused = await TogglePause()
+         resultText = paused ? "paused" : "playing"
+     }catch(e){
+         resultText = String(e)
+     }
+ }
 </script>
 
 <main>
@@ -36,8 +67,11 @@
             id="name"
             type="text"
         />
-        <button class="btn" on:click={pickDir}>Change</button>
+        <button class="btn" onclick={pickDir}>Change</button>
     </div>
+    <button class="btn" onclick={PrevSong}>&lt</button>
+    <button class="btn" onclick={TogglePlayback}>||</button>
+    <button class="btn" onclick={NextSong}>&gt</button>
 </main>
 
 <style>

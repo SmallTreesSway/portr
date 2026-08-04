@@ -1,0 +1,4 @@
+# Wails-generated packaging templates and bindings should not affect
+# repository language statistics.
+/build/windows/installer/** linguist-vendored
+/frontend/wailsjs/** linguist-generated=true
