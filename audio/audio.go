@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/dhowden/tag"
@@ -15,31 +16,38 @@ import (
 
 const outputSampleRate = beep.SampleRate(44100)
 
-type repeatOption int
+type RepeatOption int
 
 const (
-	norepeat repeatOption = iota
-	repeatQueue
-	repeatSong
+	NoRepeat RepeatOption = iota
+	RepeatQueue
+	RepeatSong
 )
 
-type audioEvent int
+type AudioEvent int
 
 const (
-	trackFinished audioEvent = iota
+	TrackFinished AudioEvent = iota
 )
 
 type AudioState struct {
-	Queue     *SongQueue
+	mu        sync.Mutex
 	SourceDir string
-	events    chan audioEvent
-	playback  *playback
+	Playback  *Playback
+	Queue     *SongQueue
+	events    chan AudioEvent
+}
+
+type Playback struct {
+	streamer beep.StreamSeekCloser
+	format   beep.Format
+	ctrl     *beep.Ctrl
 }
 
 type SongQueue struct {
 	Songs      []*Song
 	Current    int
-	RepeatMode repeatOption
+	RepeatMode RepeatOption
 }
 
 type Song struct {
@@ -57,15 +65,18 @@ type Metadata struct {
 	TrackTotal int
 }
 
+func (a *AudioState) NotifyEvent(e AudioEvent) {
+	a.events <- e
+}
+
 func InitAudioState(dirPath string) (*AudioState, error) {
-	q, err := InitSongQueue(dirPath)
-	if err != nil {
-		return nil, err
-	}
 	a := &AudioState{
 		SourceDir: dirPath,
-		Queue:     q,
-		events:    make(chan audioEvent, 1),
+		events:    make(chan AudioEvent, 1),
+	}
+	err := a.InitSongQueue()
+	if err != nil {
+		return nil, err
 	}
 	err = speaker.Init(
 		outputSampleRate,
@@ -75,34 +86,55 @@ func InitAudioState(dirPath string) (*AudioState, error) {
 		return nil, err
 	}
 
-	a.startPlayback(norepeat, a.events) //temporary for testing
+	a.startPlayback() //temporary for testing
 	return a, nil
 }
 
-func InitSongQueue(dirPath string) (*SongQueue, error) {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return nil, err
-	}
+func (a *AudioState) InitSongQueue() error {
 	q := &SongQueue{
 		RepeatMode: 0,
 		Current:    0,
-		Songs:      make([]*Song, 0, len(entries)),
 	}
+	a.Queue = q
+	return a.LoadDirectory(a.SourceDir)
+}
+
+func (a *AudioState) LoadDirectory(dirPath string) error{
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return err
+	}
+	songs := make([]*Song, 0, len(entries))
 	for _, e := range entries {
 		if e.Type().IsRegular() {
 			s, err := InitSong(filepath.Join(dirPath, e.Name()))
 			if err != nil {
 				continue
 			}
-			q.Songs = append(q.Songs, s)
+			songs = append(songs, s)
 		}
 	}
 
-	if len(entries) == 0{ //temporary to prevent seg fault
-		return nil, errors.New("no valid songs")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	err = a.stopPlayback()
+	if err != nil{
+		return err
 	}
-	return q, nil
+	a.Queue.Songs = songs
+	a.Queue.Current = 0
+
+
+	return nil
+}
+
+func (a *AudioState) LoadDirectoryThenPlay(dirPath string) error{
+	if err := a.LoadDirectory(dirPath); err != nil{
+		return err
+	}
+	a.startPlayback()
+
+	return nil
 }
 
 func InitSong(filePath string) (*Song, error) {
@@ -156,42 +188,72 @@ func buildMetadata(f *os.File) (*Metadata, error) {
 */
 
 func (a *AudioState) Next() error {
-	var err error
-	if a.playback != nil {
-		err = a.Close()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Queue.Current < len(a.Queue.Songs)-1 {
+		err := a.stopPlayback()
 		if err != nil {
 			return err
 		}
-	}
-	if a.Queue.Current < len(a.Queue.Songs)-1 {
 		a.Queue.Current++
-		err = a.startPlayback(a.Queue.RepeatMode, a.events)
-	} else if a.Queue.Current == len(a.Queue.Songs)-1 && a.Queue.RepeatMode == repeatQueue {
+		return a.startPlayback()
+
+	} else if a.Queue.Current == len(a.Queue.Songs)-1 && a.Queue.RepeatMode == RepeatQueue {
+
+		err := a.stopPlayback()
+		if err != nil {
+			return err
+		}
 		a.Queue.Current = 0
-		err = a.startPlayback(a.Queue.RepeatMode, a.events)
+		return a.startPlayback()
 	}
 
-	return err
+	return nil
 }
 
 func (a *AudioState) Prev() error {
-	var err error
-	if a.playback != nil {
-		err = a.Close()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Queue.Current > 0 {
+		err := a.stopPlayback()
 		if err != nil {
 			return err
 		}
-	}
-	if a.Queue.Current > 0 {
 		a.Queue.Current--
-		err = a.startPlayback(a.Queue.RepeatMode, a.events)
+		return a.startPlayback()
 	}
 
-	return err
+	return nil
 }
 
-func (a *AudioState) startPlayback(o repeatOption, c chan<- audioEvent) error {
+
+func (a *AudioState) ChangeSong(idx int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if idx < 0 || idx >= len(a.Queue.Songs){
+		return errors.New("index out of song list bounds")
+	}
+
+	err := a.stopPlayback()
+	if err != nil{
+		return err
+	}
+	a.Queue.Current = idx
+	a.startPlayback()
+
+	return nil
+}
+
+func (a *AudioState) stopPlayback() error {
+	if a.Playback != nil {
+		return a.Close()
+	}
+	return nil
+}
+
+func (a *AudioState) startPlayback() error {
 	s := a.Queue.Songs[a.Queue.Current]
+	o := a.Queue.RepeatMode
 	f, err := os.Open(s.SourceFile)
 	if err != nil {
 		return err
@@ -217,7 +279,7 @@ func (a *AudioState) startPlayback(o repeatOption, c chan<- audioEvent) error {
 
 	var source beep.Streamer = streamer
 
-	if o == repeatSong {
+	if o == RepeatSong {
 		source = beep.Loop(-1, streamer)
 	}
 
@@ -231,13 +293,13 @@ func (a *AudioState) startPlayback(o repeatOption, c chan<- audioEvent) error {
 	sequence := beep.Seq(
 		resampled,
 		beep.Callback(func() {
-			c <- trackFinished
+			a.NotifyEvent(TrackFinished)
 		}),
 	)
 	ctrl := &beep.Ctrl{Streamer: sequence, Paused: false}
 	speaker.Play(ctrl)
 
-	a.playback = &playback{
+	a.Playback = &Playback{
 		streamer,
 		format,
 		ctrl,
@@ -246,39 +308,51 @@ func (a *AudioState) startPlayback(o repeatOption, c chan<- audioEvent) error {
 }
 
 func (a *AudioState) TogglePause() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	speaker.Lock()
-	a.playback.ctrl.Paused = !a.playback.ctrl.Paused
-	paused := a.playback.ctrl.Paused
+	a.Playback.ctrl.Paused = !a.Playback.ctrl.Paused
+	paused := a.Playback.ctrl.Paused
 	speaker.Unlock()
 	return paused
 }
 
 func (a *AudioState) SeekTimeMilliseconds(milliseconds int64) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	position := time.Duration(milliseconds) * time.Millisecond
-	sample := a.playback.format.SampleRate.N(position)
+	if position < 0{
+		return errors.New("cannot seek position less than 0")
+	}
+	sample := a.Playback.format.SampleRate.N(position)
 
 	speaker.Lock()
 	defer speaker.Unlock()
 
-	return a.playback.streamer.Seek(sample)
+	return a.Playback.streamer.Seek(sample)
 }
 
+
 func (a *AudioState) Poll() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	speaker.Lock()
 	defer speaker.Unlock()
 
-	position := a.playback.format.SampleRate.D(
-		a.playback.streamer.Position())
+	position := a.Playback.format.SampleRate.D(
+		a.Playback.streamer.Position())
 	return position.Milliseconds()
 }
 
 func (a *AudioState) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Playback == nil {
+		return nil
+	}
 	speaker.Clear()
-	return a.playback.streamer.Close()
-}
-
-type playback struct {
-	streamer beep.StreamSeekCloser
-	format   beep.Format
-	ctrl     *beep.Ctrl
+	err := a.Playback.streamer.Close()
+	a.Playback = nil
+	return err
 }
