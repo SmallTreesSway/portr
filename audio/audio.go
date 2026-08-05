@@ -28,6 +28,7 @@ type AudioEvent int
 
 const (
 	TrackFinished AudioEvent = iota
+	TrackChangedManually
 )
 
 type AudioState struct {
@@ -100,7 +101,7 @@ func (a *AudioState) InitSongQueue() error {
 	return a.LoadDirectory(a.SourceDir)
 }
 
-func (a *AudioState) LoadDirectory(dirPath string) error{
+func (a *AudioState) LoadDirectory(dirPath string) error {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return err
@@ -119,18 +120,17 @@ func (a *AudioState) LoadDirectory(dirPath string) error{
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	err = a.stopPlayback()
-	if err != nil{
+	if err != nil {
 		return err
 	}
 	a.Queue.Songs = songs
 	a.Queue.Current = 0
 
-
 	return nil
 }
 
-func (a *AudioState) LoadDirectoryThenPlay(dirPath string) error{
-	if err := a.LoadDirectory(dirPath); err != nil{
+func (a *AudioState) LoadDirectoryThenPlay(dirPath string) error {
+	if err := a.LoadDirectory(dirPath); err != nil {
 		return err
 	}
 	a.startPlayback()
@@ -198,25 +198,32 @@ func (a *AudioState) Next() error {
 			return err
 		}
 		a.Queue.Current++
-		return a.startPlayback()
-
+		err = a.startPlayback()
+		if err != nil {
+			return err
+		}
+		a.NotifyEvent(TrackChangedManually)
 	} else if a.Queue.Current == len(a.Queue.Songs)-1 && a.Queue.RepeatMode == RepeatQueue {
 		err := a.stopPlayback()
 		if err != nil {
 			return err
 		}
 		a.Queue.Current = 0
-		return a.startPlayback()
+		err = a.startPlayback()
+		if err != nil {
+			return err
+		}
+		a.NotifyEvent(TrackChangedManually)
 	}
 
 	return nil
 }
 
-func (a *AudioState) TrackFinished() error{
+func (a *AudioState) TrackFinished() error {
 	a.mu.Lock()
-	defer a.mu.Lock()
+	defer a.mu.Unlock()
 
-	if a.Queue.RepeatMode == RepeatSong{
+	if a.Queue.RepeatMode == RepeatSong {
 		return a.SeekTimeMillisecondsLocked(0)
 	}
 
@@ -225,6 +232,7 @@ func (a *AudioState) TrackFinished() error{
 		if err != nil {
 			return err
 		}
+
 		a.Queue.Current++
 		return a.startPlayback()
 
@@ -233,6 +241,7 @@ func (a *AudioState) TrackFinished() error{
 		if err != nil {
 			return err
 		}
+
 		a.Queue.Current = 0
 		return a.startPlayback()
 	}
@@ -245,42 +254,49 @@ func (a *AudioState) Prev() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.pollLocked() > 3000{
+	if a.pollLocked() > 3000 {
 		a.SeekTimeMillisecondsLocked(0)
-
 		return nil
 	}
 
 	if a.Queue.Current > 0 {
+		err := a.stopPlayback()
+		if err != nil {
+			return err
+		}
 
-		err := a.stopPlayback()
-		if err != nil {
-			return err
-		}
 		a.Queue.Current--
-		return a.startPlayback()
-	}else if(a.Queue.Current == 0 && a.Queue.RepeatMode == RepeatQueue){
+		err = a.startPlayback()
+		if err != nil {
+			return err
+		}
+		a.NotifyEvent(TrackChangedManually)
+	} else if a.Queue.Current == 0 && a.Queue.RepeatMode == RepeatQueue {
 		err := a.stopPlayback()
 		if err != nil {
 			return err
 		}
-		a.Queue.Current = len(a.Queue.Songs) -1
-		return a.startPlayback()
+
+		a.Queue.Current = len(a.Queue.Songs) - 1
+		err = a.startPlayback()
+		if err != nil {
+			return err
+		}
+		a.NotifyEvent(TrackChangedManually)
 	}
 
 	return nil
 }
 
-
 func (a *AudioState) ChangeSong(idx int) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if idx < 0 || idx >= len(a.Queue.Songs){
+	if idx < 0 || idx >= len(a.Queue.Songs) {
 		return errors.New("index out of song list bounds")
 	}
 
 	err := a.stopPlayback()
-	if err != nil{
+	if err != nil {
 		return err
 	}
 	a.Queue.Current = idx
@@ -369,9 +385,9 @@ func (a *AudioState) SeekTimeMilliseconds(milliseconds int64) error {
 	return a.SeekTimeMillisecondsLocked(milliseconds)
 }
 
-func (a *AudioState) SeekTimeMillisecondsLocked(milliseconds int64) error{
+func (a *AudioState) SeekTimeMillisecondsLocked(milliseconds int64) error {
 	position := time.Duration(milliseconds) * time.Millisecond
-	if position < 0{
+	if position < 0 {
 		return errors.New("cannot seek position less than 0")
 	}
 	sample := a.Playback.format.SampleRate.N(position)
@@ -383,14 +399,13 @@ func (a *AudioState) SeekTimeMillisecondsLocked(milliseconds int64) error{
 
 }
 
-
 func (a *AudioState) Poll() int64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.pollLocked()
 }
 
-func (a *AudioState) pollLocked() int64{
+func (a *AudioState) pollLocked() int64 {
 	speaker.Lock()
 	defer speaker.Unlock()
 
@@ -398,7 +413,6 @@ func (a *AudioState) pollLocked() int64{
 		a.Playback.streamer.Position())
 	return position.Milliseconds()
 }
-
 
 func (a *AudioState) Close() error {
 	if a.Playback == nil {
@@ -410,9 +424,16 @@ func (a *AudioState) Close() error {
 	return err
 }
 
-func (a *AudioState) ChangeRepeatMode() RepeatOption{
+func (a *AudioState) ChangeRepeatMode() RepeatOption {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.Queue.RepeatMode = (a.Queue.RepeatMode+1)%3
+	a.Queue.RepeatMode = (a.Queue.RepeatMode + 1) % 3
 	return a.Queue.RepeatMode
+}
+
+
+func (a *AudioState) GetCurrentSongData() Metadata{
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return *a.Queue.Songs[a.Queue.Current].Metadata
 }

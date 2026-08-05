@@ -10,8 +10,6 @@ export function ChangeSong(arg1:number):Promise<void>;
 
 export function GetCurrentSongData():Promise<audio.Metadata>;
 
-export function Greet(arg1:string):Promise<string>;
-
 export function Next():Promise<void>;
 
 export function PollTimeMilliSeconds():Promise<number>;

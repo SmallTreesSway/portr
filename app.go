@@ -67,11 +67,6 @@ func (a *App) PollTimeMilliSeconds() int64{
 	return a.audioState.Poll()
 }
 
-func (a *App) GetCurrentSongData() audio.Metadata{ // for testing
-	return *a.audioState.Queue.Songs[a.audioState.Queue.Current].Metadata
-}
-
-
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
+func (a *App) GetCurrentSongData() audio.Metadata{
+	return a.audioState.GetCurrentSongData()
 }

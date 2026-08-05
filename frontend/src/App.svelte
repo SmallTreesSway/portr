@@ -1,22 +1,33 @@
 <script lang="ts">
-    import {ChangeDir, Greet, Next, Prev, TogglePause, ChangeRepeatMode } from "../wailsjs/go/main/App.js";
+    import { onMount } from "svelte";
+    import {ChangeDir, Next, Prev, TogglePause, ChangeRepeatMode, GetCurrentSongData } from "../wailsjs/go/main/App.js";
+    import {audio} from "../wailsjs/go/models"
+ import {EventsOn } from "../wailsjs/runtime/runtime.js"
 
     let resultText: string = "ChangeDir";
 
-    let name: string = "hi";
+    let songData: string =  "";
     let playbackMode: string = "no repeat";
     let dir: string;
-    function greet(): void {
-        Greet(name);
-    }
 
- /*
-    function pickDir(): void {
-        ChangeDir.then((result) => (resultText = result)).catch(
-            (error) => (resultText = error),
-        );
-    }
- */
+  onMount(() =>   {
+      const unsub = EventsOn("playback:changed", () => {
+          GetSongData()
+     });
+      GetSongData();
+
+      return unsub;
+ })
+
+ async function GetSongData(): Promise<void>{
+     try{
+         const metadata: audio.Metadata = await GetCurrentSongData()
+         songData = metadata.Title
+     }catch(e){
+         songData = "error loading metadata"
+     }
+ }
+
  async function pickDir(): Promise<void>{
      try{
          await ChangeDir(dir)
@@ -57,6 +68,7 @@
      }
  }
 
+
  async function TogglePlaybackMode(): Promise<void>{
      resultText = "pressed"
      try{
@@ -92,6 +104,9 @@
     <div>
         <p>Playback mode: {playbackMode}</p>
         <button class="btn" onclick={TogglePlaybackMode}>Play Mode</button>
+    </div>
+    <div>
+        <p>Current song: {songData}</p>
     </div>
 </main>
 
