@@ -1,6 +1,6 @@
 export namespace audio {
 	
-	export class Metadata {
+	export class Songdata {
 	    Filetype: string;
 	    Title: string;
 	    Album: string;
@@ -8,9 +8,10 @@ export namespace audio {
 	    Year: number;
 	    Track: number;
 	    TrackTotal: number;
+	    Duration: number;
 	
 	    static createFrom(source: any = {}) {
-	        return new Metadata(source);
+	        return new Songdata(source);
 	    }
 	
 	    constructor(source: any = {}) {
@@ -22,6 +23,7 @@ export namespace audio {
 	        this.Year = source["Year"];
 	        this.Track = source["Track"];
 	        this.TrackTotal = source["TrackTotal"];
+	        this.Duration = source["Duration"];
 	    }
 	}
 

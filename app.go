@@ -67,6 +67,10 @@ func (a *App) PollTimeMilliSeconds() int64{
 	return a.audioState.Poll()
 }
 
-func (a *App) GetCurrentSongData() audio.Metadata{
+func (a *App) GetCurrentSongData() audio.Songdata{
 	return a.audioState.GetCurrentSongData()
+}
+
+func (a *App) GetQueueData() []audio.Songdata{
+	return a.audioState.GetQueueData()
 }

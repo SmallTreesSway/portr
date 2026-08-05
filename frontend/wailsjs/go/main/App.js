@@ -18,6 +18,10 @@ export function GetCurrentSongData() {
   return window['go']['main']['App']['GetCurrentSongData']();
 }
 
+export function GetQueueData() {
+  return window['go']['main']['App']['GetQueueData']();
+}
+
 export function Next() {
   return window['go']['main']['App']['Next']();
 }

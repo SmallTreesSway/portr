@@ -8,7 +8,9 @@ export function ChangeRepeatMode():Promise<audio.RepeatOption>;
 
 export function ChangeSong(arg1:number):Promise<void>;
 
-export function GetCurrentSongData():Promise<audio.Metadata>;
+export function GetCurrentSongData():Promise<audio.Songdata>;
+
+export function GetQueueData():Promise<Array<audio.Songdata>>;
 
 export function Next():Promise<void>;
 

@@ -2,6 +2,8 @@ package audio
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -54,6 +56,7 @@ type SongQueue struct {
 type Song struct {
 	SourceFile string
 	Metadata   *Metadata
+	Duration   time.Duration
 }
 
 type Metadata struct {
@@ -64,6 +67,11 @@ type Metadata struct {
 	Year       int
 	Track      int
 	TrackTotal int
+}
+
+type Songdata struct {
+	Metadata
+	Duration time.Duration
 }
 
 func (a *AudioState) NotifyEvent(e AudioEvent) {
@@ -87,7 +95,11 @@ func InitAudioState(dirPath string) (*AudioState, error) {
 		return nil, err
 	}
 
-	a.startPlayback()
+	err = a.startPlayback()
+	if err != nil {
+		return nil, err
+	}
+
 	a.TogglePause()
 	return a, nil
 }
@@ -110,8 +122,9 @@ func (a *AudioState) LoadDirectory(dirPath string) error {
 	for _, e := range entries {
 		if e.Type().IsRegular() {
 			s, err := InitSong(filepath.Join(dirPath, e.Name()))
-			if err != nil {
-				continue
+			if err != nil{
+				fmt.Println("Error loading song: " + err.Error())
+				continue;
 			}
 			songs = append(songs, s)
 		}
@@ -123,6 +136,11 @@ func (a *AudioState) LoadDirectory(dirPath string) error {
 	if err != nil {
 		return err
 	}
+
+	if len(songs) == 0 {
+		return errors.New("no valid songs")
+	}
+
 	a.Queue.Songs = songs
 	a.Queue.Current = 0
 
@@ -133,12 +151,17 @@ func (a *AudioState) LoadDirectoryThenPlay(dirPath string) error {
 	if err := a.LoadDirectory(dirPath); err != nil {
 		return err
 	}
-	a.startPlayback()
-
-	return nil
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.startPlayback()
 }
 
-func InitSong(filePath string) (*Song, error) {
+func InitSong(filePath string) (song *Song, e error) {
+	defer func() {
+		if e != nil {
+			fmt.Println("error: " + e.Error())
+		}
+	}()
 	f, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -152,6 +175,15 @@ func InitSong(filePath string) (*Song, error) {
 	s := &Song{
 		SourceFile: filePath,
 		Metadata:   m,
+	}
+	_, err = f.Seek(0, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.LoadDuration(f)
+	if err != nil {
+		return nil, err
 	}
 
 	return s, nil
@@ -224,7 +256,12 @@ func (a *AudioState) TrackFinished() error {
 	defer a.mu.Unlock()
 
 	if a.Queue.RepeatMode == RepeatSong {
-		return a.SeekTimeMillisecondsLocked(0)
+		err := a.stopPlayback()
+		if err != nil {
+			return err
+		}
+
+		return a.startPlayback()
 	}
 
 	if a.Queue.Current < len(a.Queue.Songs)-1 {
@@ -300,7 +337,11 @@ func (a *AudioState) ChangeSong(idx int) error {
 		return err
 	}
 	a.Queue.Current = idx
-	a.startPlayback()
+	err = a.startPlayback()
+	if err != nil {
+		return err
+	}
+	a.NotifyEvent(TrackChangedManually)
 
 	return nil
 }
@@ -314,7 +355,6 @@ func (a *AudioState) stopPlayback() error {
 
 func (a *AudioState) startPlayback() error {
 	s := a.Queue.Songs[a.Queue.Current]
-	o := a.Queue.RepeatMode
 	f, err := os.Open(s.SourceFile)
 	if err != nil {
 		return err
@@ -338,17 +378,11 @@ func (a *AudioState) startPlayback() error {
 		return err
 	}
 
-	var source beep.Streamer = streamer
-
-	if o == RepeatSong {
-		source = beep.Loop(-1, streamer)
-	}
-
 	resampled := beep.Resample(
 		4, // subject to change/tuning
 		format.SampleRate,
 		outputSampleRate,
-		source,
+		streamer,
 	)
 
 	sequence := beep.Seq(
@@ -366,6 +400,28 @@ func (a *AudioState) startPlayback() error {
 		ctrl,
 	}
 	return nil
+}
+
+func (s *Song) LoadDuration(f *os.File) error {
+	var streamer beep.StreamSeekCloser
+	var format beep.Format
+	var err error
+	switch s.Metadata.Filetype {
+	case tag.UnknownFileType:
+		return errors.New("error starting playback: unknown file type")
+	case tag.MP3:
+		streamer, format, err = mp3.Decode(f)
+	case tag.FLAC:
+		streamer, format, err = flac.Decode(f)
+	default:
+		return errors.New("error starting playback: file type not supported")
+	}
+	if err != nil {
+		return err
+	}
+
+	s.Duration = format.SampleRate.D(streamer.Len())
+	return streamer.Close()
 }
 
 func (a *AudioState) TogglePause() bool {
@@ -431,9 +487,28 @@ func (a *AudioState) ChangeRepeatMode() RepeatOption {
 	return a.Queue.RepeatMode
 }
 
-
-func (a *AudioState) GetCurrentSongData() Metadata{
+func (a *AudioState) GetCurrentSongData() Songdata {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return *a.Queue.Songs[a.Queue.Current].Metadata
+	s := a.Queue.Songs[a.Queue.Current]
+	return a.getSongDataLocked(s)
+}
+
+func (a *AudioState) getSongDataLocked(s *Song) Songdata {
+	return Songdata{
+		Metadata: *s.Metadata,
+		Duration: s.Duration,
+	}
+}
+
+func (a *AudioState) GetQueueData() []Songdata {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	songData := make([]Songdata, 0, len(a.Queue.Songs))
+	for _, s := range a.Queue.Songs {
+		songData = append(songData, a.getSongDataLocked(s))
+	}
+
+	return songData
 }
