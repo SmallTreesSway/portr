@@ -4,6 +4,8 @@ import {audio} from '../models';
 
 export function ChangeDir(arg1:string):Promise<void>;
 
+export function ChangeRepeatMode():Promise<audio.RepeatOption>;
+
 export function ChangeSong(arg1:number):Promise<void>;
 
 export function GetCurrentSongData():Promise<audio.Metadata>;

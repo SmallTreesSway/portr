@@ -6,6 +6,10 @@ export function ChangeDir(arg1) {
   return window['go']['main']['App']['ChangeDir'](arg1);
 }
 
+export function ChangeRepeatMode() {
+  return window['go']['main']['App']['ChangeRepeatMode']();
+}
+
 export function ChangeSong(arg1) {
   return window['go']['main']['App']['ChangeSong'](arg1);
 }

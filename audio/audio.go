@@ -2,7 +2,6 @@ package audio
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -87,7 +86,8 @@ func InitAudioState(dirPath string) (*AudioState, error) {
 		return nil, err
 	}
 
-	a.startPlayback() //temporary for testing
+	a.startPlayback()
+	a.TogglePause()
 	return a, nil
 }
 
@@ -191,6 +191,7 @@ func buildMetadata(f *os.File) (*Metadata, error) {
 func (a *AudioState) Next() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
 	if a.Queue.Current < len(a.Queue.Songs)-1 {
 		err := a.stopPlayback()
 		if err != nil {
@@ -200,7 +201,6 @@ func (a *AudioState) Next() error {
 		return a.startPlayback()
 
 	} else if a.Queue.Current == len(a.Queue.Songs)-1 && a.Queue.RepeatMode == RepeatQueue {
-
 		err := a.stopPlayback()
 		if err != nil {
 			return err
@@ -212,15 +212,59 @@ func (a *AudioState) Next() error {
 	return nil
 }
 
+func (a *AudioState) TrackFinished() error{
+	a.mu.Lock()
+	defer a.mu.Lock()
+
+	if a.Queue.RepeatMode == RepeatSong{
+		return a.SeekTimeMillisecondsLocked(0)
+	}
+
+	if a.Queue.Current < len(a.Queue.Songs)-1 {
+		err := a.stopPlayback()
+		if err != nil {
+			return err
+		}
+		a.Queue.Current++
+		return a.startPlayback()
+
+	} else if a.Queue.Current == len(a.Queue.Songs)-1 && a.Queue.RepeatMode == RepeatQueue {
+		err := a.stopPlayback()
+		if err != nil {
+			return err
+		}
+		a.Queue.Current = 0
+		return a.startPlayback()
+	}
+
+	return nil
+
+}
+
 func (a *AudioState) Prev() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	if a.pollLocked() > 3000{
+		a.SeekTimeMillisecondsLocked(0)
+
+		return nil
+	}
+
 	if a.Queue.Current > 0 {
+
 		err := a.stopPlayback()
 		if err != nil {
 			return err
 		}
 		a.Queue.Current--
+		return a.startPlayback()
+	}else if(a.Queue.Current == 0 && a.Queue.RepeatMode == RepeatQueue){
+		err := a.stopPlayback()
+		if err != nil {
+			return err
+		}
+		a.Queue.Current = len(a.Queue.Songs) -1
 		return a.startPlayback()
 	}
 
@@ -322,6 +366,10 @@ func (a *AudioState) TogglePause() bool {
 func (a *AudioState) SeekTimeMilliseconds(milliseconds int64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.SeekTimeMillisecondsLocked(milliseconds)
+}
+
+func (a *AudioState) SeekTimeMillisecondsLocked(milliseconds int64) error{
 	position := time.Duration(milliseconds) * time.Millisecond
 	if position < 0{
 		return errors.New("cannot seek position less than 0")
@@ -332,12 +380,17 @@ func (a *AudioState) SeekTimeMilliseconds(milliseconds int64) error {
 	defer speaker.Unlock()
 
 	return a.Playback.streamer.Seek(sample)
+
 }
 
 
 func (a *AudioState) Poll() int64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.pollLocked()
+}
+
+func (a *AudioState) pollLocked() int64{
 	speaker.Lock()
 	defer speaker.Unlock()
 
@@ -345,6 +398,7 @@ func (a *AudioState) Poll() int64 {
 		a.Playback.streamer.Position())
 	return position.Milliseconds()
 }
+
 
 func (a *AudioState) Close() error {
 	if a.Playback == nil {
@@ -354,4 +408,11 @@ func (a *AudioState) Close() error {
 	err := a.Playback.streamer.Close()
 	a.Playback = nil
 	return err
+}
+
+func (a *AudioState) ChangeRepeatMode() RepeatOption{
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.Queue.RepeatMode = (a.Queue.RepeatMode+1)%3
+	return a.Queue.RepeatMode
 }

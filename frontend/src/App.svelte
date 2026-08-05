@@ -1,9 +1,10 @@
 <script lang="ts">
-    import {ChangeDir, Greet, Next, Prev, TogglePause } from "../wailsjs/go/main/App.js";
+    import {ChangeDir, Greet, Next, Prev, TogglePause, ChangeRepeatMode } from "../wailsjs/go/main/App.js";
 
     let resultText: string = "ChangeDir";
 
     let name: string = "hi";
+    let playbackMode: string = "no repeat";
     let dir: string;
     function greet(): void {
         Greet(name);
@@ -55,6 +56,22 @@
          resultText = String(e)
      }
  }
+
+ async function TogglePlaybackMode(): Promise<void>{
+     resultText = "pressed"
+     try{
+         let mode: 0 | 1 | 2 = await ChangeRepeatMode()
+         if(mode == 0){
+             playbackMode = "no repeat"
+         }else if(mode == 1){
+             playbackMode = "repeat playlist"
+         }else{
+             playbackMode = "repeat song"
+         }
+     }catch(e){
+
+     }
+ }
 </script>
 
 <main>
@@ -72,6 +89,10 @@
     <button class="btn" onclick={PrevSong}>&lt</button>
     <button class="btn" onclick={TogglePlayback}>||</button>
     <button class="btn" onclick={NextSong}>&gt</button>
+    <div>
+        <p>Playback mode: {playbackMode}</p>
+        <button class="btn" onclick={TogglePlaybackMode}>Play Mode</button>
+    </div>
 </main>
 
 <style>

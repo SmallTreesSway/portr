@@ -50,6 +50,11 @@ func (a *App) TogglePause() bool{
 	return a.audioState.TogglePause()
 }
 
+func (a *App) ChangeRepeatMode() audio.RepeatOption{
+	return a.audioState.ChangeRepeatMode()
+}
+
+
 func (a *App) ChangeSong(idx int) error{
 	return a.audioState.ChangeSong(idx)
 }
