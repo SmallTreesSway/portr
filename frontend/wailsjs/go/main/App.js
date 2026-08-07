@@ -26,6 +26,10 @@ export function Next() {
   return window['go']['main']['App']['Next']();
 }
 
+export function OpenDirDialog() {
+  return window['go']['main']['App']['OpenDirDialog']();
+}
+
 export function PollTimeMilliSeconds() {
   return window['go']['main']['App']['PollTimeMilliSeconds']();
 }

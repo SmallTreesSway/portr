@@ -14,6 +14,8 @@ export function GetQueueData():Promise<Array<audio.Songdata>>;
 
 export function Next():Promise<void>;
 
+export function OpenDirDialog():Promise<string>;
+
 export function PollTimeMilliSeconds():Promise<number>;
 
 export function Prev():Promise<void>;

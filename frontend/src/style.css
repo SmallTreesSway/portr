@@ -1,15 +1,27 @@
-html {
-    background-color: rgba(27, 38, 54, 1);
-    text-align: center;
-    color: white;
+:root {
+    /* Catppuccin Mocha */
+    --color-bg: #11111b;              /* crust */
+    --color-bg-light: #181825;        /* mantle */
+    --color-surface: #1e1e2e;         /* base */
+    --color-surface-hover: #313244;   /* surface0 */
+    --color-text: #cdd6f4;            /* text */
+    --color-text-muted: #a6adc8;      /* subtext0 */
+    --color-focus: #f9e2af;           /* yellow */
+
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#app {
+    min-height: 100%;
 }
 
 body {
     margin: 0;
-    color: white;
-    font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
-    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
+    background: var(--color-bg);
 }
 
 @font-face {
@@ -22,5 +34,4 @@ body {
 
 #app {
     height: 100vh;
-    text-align: center;
 }

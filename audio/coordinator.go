@@ -15,24 +15,36 @@ func (a *AudioState) Run(ctx context.Context) {
 			switch event {
 			case TrackFinished:
 				err := a.TrackFinished()
-				if err != nil{
+				if err != nil {
 					fmt.Println("error: " + err.Error())
 				}
-				a.LockedLogger()
+				a.LockedLogger(TrackFinished)
 				runtime.EventsEmit(ctx, "playback:changed", struct{}{})
 			case TrackChangedManually:
-				a.LockedLogger()
+				a.LockedLogger(TrackChangedManually)
 				runtime.EventsEmit(ctx, "playback:changed", struct{}{})
+			case DirectoryLoaded:
+				a.LockedLogger(DirectoryLoaded)
+				runtime.EventsEmit(ctx, "directory:loaded", struct{}{})
 			}
-		case <- ctx.Done():
+
+		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (a *AudioState) LockedLogger(){
+func (a *AudioState) LockedLogger(e AudioEvent) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	log.Println("[Debug]::Audio::TrackChanged::" + a.Queue.Songs[a.Queue.Current].Metadata.Title)
+	switch e {
+	case TrackChangedManually:
+		log.Println("[Debug]::Audio::TrackChanged::" + a.Queue.Songs[a.Queue.Current].Metadata.Title)
+	case TrackFinished:
+		log.Println("[Debug]::Audio::TrackChanged::" + a.Queue.Songs[a.Queue.Current].Metadata.Title)
+	case DirectoryLoaded:
+		log.Println("[Debug]::Audio::DirectoryLoaded::" + a.SourceDir)
+	}
+
 }

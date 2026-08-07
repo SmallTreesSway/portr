@@ -31,6 +31,7 @@ type AudioEvent int
 const (
 	TrackFinished AudioEvent = iota
 	TrackChangedManually
+	DirectoryLoaded
 )
 
 type AudioState struct {
@@ -83,11 +84,7 @@ func InitAudioState(dirPath string) (*AudioState, error) {
 		SourceDir: dirPath,
 		events:    make(chan AudioEvent, 1),
 	}
-	err := a.InitSongQueue()
-	if err != nil {
-		return nil, err
-	}
-	err = speaker.Init(
+	err := speaker.Init(
 		outputSampleRate,
 		outputSampleRate.N(100*time.Millisecond),
 	)
@@ -95,12 +92,11 @@ func InitAudioState(dirPath string) (*AudioState, error) {
 		return nil, err
 	}
 
-	err = a.startPlayback()
+	err = a.InitSongQueue()
 	if err != nil {
 		return nil, err
 	}
 
-	a.TogglePause()
 	return a, nil
 }
 
@@ -137,6 +133,7 @@ func (a *AudioState) LoadDirectory(dirPath string) error {
 		return err
 	}
 
+
 	if len(songs) == 0 {
 		return errors.New("no valid songs")
 	}
@@ -144,6 +141,14 @@ func (a *AudioState) LoadDirectory(dirPath string) error {
 	a.Queue.Songs = songs
 	a.Queue.Current = 0
 
+
+	err = a.startPlayback()
+	if err != nil{
+		return err
+	}
+	a.togglePauseLocked()
+
+	a.NotifyEvent(DirectoryLoaded)
 	return nil
 }
 
@@ -428,6 +433,11 @@ func (a *AudioState) TogglePause() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+
+	return a.togglePauseLocked()
+}
+
+func (a *AudioState) togglePauseLocked() bool{
 	speaker.Lock()
 	a.Playback.ctrl.Paused = !a.Playback.ctrl.Paused
 	paused := a.Playback.ctrl.Paused
